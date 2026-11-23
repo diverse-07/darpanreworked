@@ -1,0 +1,6 @@
+suspect_id,name,phone,known_imeis,base_location,prior_firs
+s1,Rohan Mehta,+919829077112,356938035643801|356938035643819,"Shyam Nagar, Jaipur",DEMO-FIR-014
+s2,Aman Verma,+919876543210,356938035643819,"Mansarovar, Jaipur",DEMO-FIR-017
+s3,Vikash Sharma,+919876543211,356938035643827,"Mansarovar, Jaipur",
+s4,Neha Singh,+919876543212,356938035643835,"Shyam Nagar, Jaipur",
+s5,Rajat Kumar,+919876543213,356938035643843,"Mansarovar, Jaipur",
