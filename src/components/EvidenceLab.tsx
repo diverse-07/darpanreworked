@@ -1,7 +1,7 @@
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Aperture, AudioWaveform, Cable, FileSearch, MapPin, Minus, Pause, Play, Plus, RotateCcw, UserRound } from 'lucide-react';
+import { Aperture, AudioWaveform, Cable, FileSearch, MapPin, Minus, Pause, Play, Plus, RotateCcw, Smartphone, UserRound } from 'lucide-react';
 import type { CaseFile, EvidenceCitation } from '../types/forensics.ts';
-import { cdrToCitation, ipdrToCitation } from '../lib/forensics.ts';
+import { cdrToCitation, ipdrToCitation, isVoiceCall } from '../lib/forensics.ts';
 import { FaceScan, scanViewCount } from './FaceScan.tsx';
 import './evidence-lab.css';
 
@@ -9,18 +9,19 @@ type LabNode = {
   id: string;
   label: string;
   detail: string;
-  kind: 'person' | 'call' | 'session' | 'tower';
+  kind: 'person' | 'call' | 'session' | 'tower' | 'device';
   count: number;
   cites: EvidenceCitation[];
 };
 
-const accent = { person: '#70e5ff', call: '#a89bff', session: '#ffbf81', tower: '#6ff3bc' };
-const icons = { person: UserRound, call: AudioWaveform, session: Cable, tower: MapPin };
+const accent = { person: '#70e5ff', call: '#a89bff', session: '#ffbf81', tower: '#6ff3bc', device: '#f89cda' };
+const icons = { person: UserRound, call: AudioWaveform, session: Cable, tower: MapPin, device: Smartphone };
 const peoplePositions = [[159,86],[88,181],[116,286],[224,347]];
-const evidencePositions = [[656,86],[716,200],[651,315]];
+const evidencePositions = [[645,70],[711,155],[711,249],[624,337]];
 
 function collectNodes(caseFile: CaseFile, subject: string): LabNode[] {
-  const calls = caseFile.cdrs.filter(row => row.caller === subject || row.callee === subject);
+  const contacts = caseFile.cdrs.filter(row => row.caller === subject || row.callee === subject);
+  const calls = contacts.filter(isVoiceCall);
   const peers = new Map<string, typeof calls>();
   for (const row of calls) {
     const peer = row.caller === subject ? row.callee : row.caller;
@@ -33,13 +34,21 @@ function collectNodes(caseFile: CaseFile, subject: string): LabNode[] {
     kind: 'person', count: records.length, cites: records.slice(0,6).map(cdrToCitation),
   }));
   const sessions = caseFile.ipdrs.filter(row => row.msisdn === subject);
-  const towers = calls.filter(row => row.observedMsisdn === subject && row.cellTowerId);
+  const observations = contacts.filter(row => row.observedMsisdn === subject);
+  const towers = observations.filter(row => row.cellTowerId);
   const sessionTowers = sessions.filter(row => row.cellTowerId);
+  const hasDevice = (row: { imei?: string; imsi?: string; iccid?: string }) => Boolean(row.imei || row.imsi || row.iccid);
+  const deviceCitations = [
+    ...observations.filter(hasDevice).map(cdrToCitation),
+    ...sessions.filter(hasDevice).map(ipdrToCitation),
+  ].sort((a, b) => Date.parse(b.timestamp ?? '') - Date.parse(a.timestamp ?? ''));
   return people.concat([
     { id:'calls', label:'Call records', detail:'CDR', kind:'call', count:calls.length, cites:calls.slice(0,6).map(cdrToCitation) },
     { id:'sessions', label:'IP sessions', detail:'IPDR', kind:'session', count:sessions.length, cites:sessions.slice(0,6).map(ipdrToCitation) },
     { id:'towers', label:'Tower observations', detail:'Serving cell', kind:'tower', count:towers.length + sessionTowers.length,
       cites:[...towers.map(cdrToCitation), ...sessionTowers.map(ipdrToCitation)].slice(0,6) },
+    { id:'devices', label:'Devices and SIMs', detail:'IMEI, IMSI or ICCID observations', kind:'device', count:deviceCitations.length,
+      cites:deviceCitations.slice(0,6) },
   ]);
 }
 

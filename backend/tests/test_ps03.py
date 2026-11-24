@@ -1,5 +1,8 @@
 import io
+import json
 import secrets
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -126,6 +129,44 @@ class PS03Test(unittest.TestCase):
         self.assertIn("both called 2 third-party numbers", result.summary)
         self.assertTrue(all(row["Direction"] == "Outgoing" for row in result.evidence
                             if row["Compared subject"] != "Direct A/B"))
+
+    def test_shared_contact_night_window_and_evidence_gaps(self):
+        case = app.make_demo()
+        question = "Which numbers did both suspects contact after midnight?"
+        result = t.answer(case, question, N1, N2)
+        self.assertEqual(result.subjects, [N1, N2])
+        self.assertEqual(result.intent, "common")
+        self.assertIn("00:00–06:00 IST", result.summary)
+        self.assertTrue(result.evidence)
+        self.assertTrue(all(int(row["Time (IST)"][11:13]) < 6 for row in result.evidence))
+        missing = t.answer(case, f"common numbers between {N1} and +911234567890")
+        self.assertFalse(missing.evidence)
+        self.assertIn("for both selected numbers", missing.summary)
+        invalid = t.answer(case, "calls between 2026-01-14 02:00 and 97:00 for Rohan Mehta", N1)
+        self.assertEqual(invalid.title, "Time window needed")
+        self.assertFalse(invalid.evidence)
+
+    def test_json_bridge_uses_utf8_for_hindi_questions(self):
+        payload = {
+            "demo": True,
+            "question": "रोहन मेहता की रात की कॉल दिखाएं।",
+            "caseFile": {
+                "sources": [{"id": "one", "fileName": "fixture.csv", "sha256": "a" * 64}],
+                "suspects": [{"suspectId": "s1", "name": "Rohan Mehta", "phone": N1,
+                              "knownImeis": [], "baseLocation": "", "priorFirs": []}],
+                "cdrs": [{"id": "cdr-1", "sourceId": "one", "sourceFile": "fixture.csv", "rowNumber": 2,
+                          "operator": "Custom", "timestampIso": "2026-01-14T02:00:00+05:30",
+                          "caller": N1, "callee": N2, "durationSec": 10, "observedMsisdn": N1, "callType": "CALL"}],
+                "ipdrs": [], "towers": [],
+            },
+        }
+        bridge = SAMPLES.parent / "local_engine.py"
+        result = subprocess.run([sys.executable, "-B", str(bridge), "answer"],
+                                input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+                                capture_output=True, check=True, timeout=30)
+        finding = json.loads(result.stdout)["value"]
+        self.assertEqual(finding["title"], "Night activity")
+        self.assertIn("fixture.csv Row #2", finding["evidence"][0]["Source record"])
 
     def test_encrypted_station_roles_and_concurrent_revisions(self):
         with tempfile.TemporaryDirectory() as directory:

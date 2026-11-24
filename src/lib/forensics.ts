@@ -194,6 +194,10 @@ export function filterCdrs(cdrs: CdrRecord[], filters?: AnalysisFilters): CdrRec
   });
 }
 
+export function isVoiceCall(record: CdrRecord): boolean {
+  return record.callType !== 'SMS_IN' && record.callType !== 'SMS_OUT';
+}
+
 /**
  * Analyzes communication patterns for a specific MSISDN (or entire case if targetNumber is 'ALL').
  */
@@ -210,6 +214,7 @@ export function analyzeContactPatterns(
 
   const normalizedTarget = targetNumber === 'ALL' ? 'ALL' : normalizePhoneNumber(targetNumber);
   const filtered = filterCdrs(cdrs, filters).filter((r) => {
+    if (!isVoiceCall(r)) return false;
     if (normalizedTarget === 'ALL') return true;
     return r.caller === normalizedTarget || r.callee === normalizedTarget;
   });
@@ -248,17 +253,14 @@ export function analyzeContactPatterns(
     totalDurationSec += r.durationSec;
     if (r.isNight) nightCalls += 1;
 
-    const isOutgoing =
-      normalizedTarget === 'ALL' ? true : r.caller === normalizedTarget;
+    const subject = normalizedTarget === 'ALL'
+      ? (r.observedMsisdn === r.callee ? r.callee : r.caller)
+      : normalizedTarget;
+    const isOutgoing = r.caller === subject;
     if (isOutgoing) outgoingCalls += 1;
     else incomingCalls += 1;
 
-    const counterpart =
-      normalizedTarget === 'ALL'
-        ? r.callee
-        : r.caller === normalizedTarget
-          ? r.callee
-          : r.caller;
+    const counterpart = isOutgoing ? r.callee : r.caller;
 
     const existing = contactMap.get(counterpart);
     if (!existing) {
@@ -404,7 +406,7 @@ export function findCommonContacts(
     suspectByPhone.set(normalizePhoneNumber(s.phone), s);
   }
 
-  const filtered = filterCdrs(cdrs, filters);
+  const filtered = filterCdrs(cdrs, filters).filter(isVoiceCall);
 
   const thirdPartyMap = new Map<
     string,
@@ -514,7 +516,7 @@ export function buildNetworkGraph(
   for (const s of suspects) {
     suspectByPhone.set(normalizePhoneNumber(s.phone), s);
   }
-  const filtered = filterCdrs(cdrs, filters);
+  const filtered = filterCdrs(cdrs, filters).filter(isVoiceCall);
 
   const nodeStats = new Map<
     string,
@@ -626,7 +628,8 @@ export function buildTowerTimeline(
   cdrs: CdrRecord[],
   towers: CellTower[],
   targetNumber: string,
-  filters?: AnalysisFilters
+  filters?: AnalysisFilters,
+  ipdrs: IpdrRecord[] = [],
 ): {
   steps: TowerTimelineStep[];
   towerSummary: Array<{
@@ -649,12 +652,25 @@ export function buildTowerTimeline(
     towerMap.set(t.towerId.toUpperCase(), t);
   }
 
-  const relevant = filterCdrs(cdrs, filters)
-    .filter((r) => {
-      if (!r.cellTowerId) return false;
-      return r.observedMsisdn === normalizedTarget;
-    })
-    .sort((a, b) => a.epochMs - b.epochMs);
+  const callObservations = filterCdrs(cdrs, filters)
+    .filter(row => row.cellTowerId && row.observedMsisdn === normalizedTarget)
+    .map(row => ({ ...row, citation: cdrToCitation(row), counterpart: row.caller === normalizedTarget ? row.callee : row.caller }));
+  const startMs = filters?.startIso ? parseTimestampIST(filters.startIso)?.epochMs : undefined;
+  const endMs = filters?.endIso ? parseTimestampIST(filters.endIso)?.epochMs : undefined;
+  const sessionObservations = ipdrs.flatMap(row => {
+    if (!row.cellTowerId || row.msisdn !== normalizedTarget) return [];
+    const epochMs = row.sessionStartMs;
+    const isNight = new Date(epochMs + IST_OFFSET_MS).getUTCHours() < 6;
+    if ((filters?.nightOnly && !isNight) ||
+        (startMs !== undefined && epochMs < startMs) ||
+        (endMs !== undefined && epochMs >= endMs) ||
+        (filters?.operator && filters.operator !== 'ALL' && filters.operator !== row.operator)) return [];
+    return [{
+      ...row, epochMs, isNight, timestampIso: row.sessionStartIso,
+      citation: ipdrToCitation(row), counterpart: row.publicIp, durationSec: row.sessionDurationSec ?? 0,
+    }];
+  });
+  const relevant = [...callObservations, ...sessionObservations].sort((a, b) => a.epochMs - b.epochMs);
 
   const steps: TowerTimelineStep[] = [];
   const summaryMap = new Map<
@@ -705,8 +721,6 @@ export function buildTowerTimeline(
       }
     }
 
-    const counterpart = r.caller === normalizedTarget ? r.callee : r.caller;
-
     steps.push({
       index: i + 1,
       timestampIso: r.timestampIso,
@@ -717,10 +731,11 @@ export function buildTowerTimeline(
       lon: meta?.lon,
       azimuthDegrees: meta?.azimuthDegrees,
       recordId: r.id,
+      citation: r.citation,
       sourceFile: r.sourceFile,
       rowNumber: r.rowNumber,
       operator: r.operator,
-      counterpart,
+      counterpart: r.counterpart,
       durationSec: r.durationSec,
       isNight: r.isNight,
       imei: r.imei,

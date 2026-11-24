@@ -19,6 +19,9 @@ class Finding:
     summary: str
     rows: list[dict] = field(default_factory=list)
     evidence: list[dict] = field(default_factory=list)
+    intent: str = ""
+    subjects: list[str] = field(default_factory=list)
+    night_only: bool = False
 
 
 def stamp(value):
@@ -175,14 +178,24 @@ def call_boundaries(case, number, start, end, *, earliest, latest, direction, pe
     return Finding(title, summary, table, evidence)
 
 
-def common_contacts(case, first, second, start=None, end=None, *, outgoing_only=False):
+def common_contacts(case, first, second, start=None, end=None, *, outgoing_only=False, night_only=False):
     if first == second:
         return Finding("Common contacts", "Choose two different phone numbers.")
     first_rows, second_rows = (calls_for(case, p, start, end) for p in (first, second))
+    if night_only:
+        first_rows, second_rows = ([row for row in rows if row["timestamp"].astimezone(IST).hour < 6]
+                                   for rows in (first_rows, second_rows))
     direct_rows = [row for row in first_rows if row["peer"] == second]
     if outgoing_only:
         first_rows = [row for row in first_rows if row["direction"] == "Outgoing"]
         second_rows = [row for row in second_rows if row["direction"] == "Outgoing"]
+    window = window_summary(start, end)
+    if night_only:
+        window += "Night window 00:00–06:00 IST. "
+    if not first_rows or not second_rows:
+        direction = " outgoing" if outgoing_only else ""
+        return Finding("Common contacts", window +
+                       f"The available CDR records do not contain{direction} calls for both selected numbers.")
     a, b = group_contacts(first_rows), group_contacts(second_rows)
     shared = (a.keys() & b.keys()) - {first, second}
     items, evidence = [], []
@@ -194,22 +207,19 @@ def common_contacts(case, first, second, start=None, end=None, *, outgoing_only=
         for label, group in (("A", left), ("B", right)):
             evidence.extend({"Compared subject": label, **r} for r in call_evidence(group))
     direct = len(direct_rows)
-    if not first_rows or not second_rows:
-        direction = " outgoing" if outgoing_only else ""
-        summary = f"The available CDR records do not contain{direction} calls for both selected numbers."
-    else:
-        comparison = (f"both called {len(shared)} third-party numbers" if outgoing_only
-                      else f"share {len(shared)} third-party contacts")
-        summary = f"{first} and {second} {comparison}. The logs contain {direct} direct calls between them."
-    if items:
-        summary += f" Highest combined recorded count: {items[0]['Shared number']}."
+    comparison = (f"both called {len(shared)} third-party numbers" if outgoing_only
+                  else f"share {len(shared)} third-party contacts")
+    summary = f"{first} and {second} {comparison}. The logs contain {direct} direct calls between them."
     # Keep direct-call claims and zero-overlap comparisons inspectable.
     if direct:
         evidence.extend({"Compared subject": "Direct A/B", **r} for r in call_evidence(direct_rows))
     if not items and not direct:
         evidence.extend({"Compared subject": label, **r} for label, group in (("A", first_rows), ("B", second_rows))
                         for r in call_evidence(group))
-    return Finding("Common contacts", window_summary(start, end) + summary, items, evidence)
+    if items:
+        leaders = ", ".join(row["Shared number"] for row in items[:5])
+        summary += f" Shared numbers by call count: {leaders}."
+    return Finding("Common contacts", window + summary, items, evidence)
 
 
 def observations(case, number, start=None, end=None):
@@ -348,7 +358,7 @@ INTENT_RULES = (
     ("ipdr", "ipdr|service indicator|app usage|application usage|ऐप|आईपीडीआर"),
     ("summary", "summari[sz]e|summary|सारांश|case overview"),
     ("explain", "explain.*(?:graph|chart|network)|interpret.*(?:graph|chart)|ग्राफ समझा|नेटवर्क समझा"),
-    ("night", "night|last night|raat|रात"),
+    ("night", r"\bnight\b|after midnight|raat|रात|मध्यरात्रि"),
     ("movement", "timeline|trajectory|movement|repeated tower|tower sequence|टावर क्रम|टावर टाइमलाइन|लोकेशन क्रम"),
     ("contacts", "frequent contact|top contact|most called|call count|call duration|contact pattern|unusual contact|incoming|outgoing|सबसे ज़्यादा|सबसे ज्यादा|अधिक कॉल"),
     ("calls", r"time window|between|calls on|samay|समय|\d{2}:\d{2}"),
@@ -372,7 +382,9 @@ def boundary_request(question):
 
 
 CALL_COUNT = re.compile(r"\bhow many\b.{0,24}\bcalls?\b|\bnumber of calls\b|कितनी कॉल|कितने फोन|kitn[ei].{0,16}calls?")
-JOINT_CALL = re.compile(r"\b(?:both|dono)\s+(?:call(?:ed)?|dial(?:ed|led)?)\b|called by both")
+JOINT_CALL = re.compile(r"\b(?:both|dono)\s+(?:(?:suspects?|subjects?|numbers?)\s+)?(?:call(?:ed)?|dial(?:ed|led)?)\b|called by both")
+SHARED_QUESTION = re.compile(r"\b(?:both|dono)\b.*\b(?:contact(?:ed|s)?|call(?:ed|s)?|dial(?:ed|led)?)\b")
+NIGHT_QUESTION = re.compile(r"\bnight\b|after midnight|raat|रात|मध्यरात्रि")
 
 
 def question_window(case, text, numbers):
@@ -407,9 +419,11 @@ def answer(case, question, active=None, compare=None, predicted=None):
             and not re.search("repeat|sequence|timeline|क्रम|टाइमलाइन", lower)):
         return None
     boundary = boundary_request(lower)
-    is_count = bool(CALL_COUNT.search(lower)) and not re.search(r"night|raat|रात", lower)
+    night_only = bool(NIGHT_QUESTION.search(lower))
+    is_count = bool(CALL_COUNT.search(lower)) and not night_only
     joint_call = bool(JOINT_CALL.search(lower))
-    kind = ("boundary" if boundary else "common" if joint_call else "count" if is_count else
+    shared_question = joint_call or SHARED_QUESTION.search(lower)
+    kind = ("boundary" if boundary else "common" if shared_question else "count" if is_count else
             next((label for label, expression in INTENT_RULES if re.search(expression, lower)), predicted))
     if kind not in {*TASKS, "night", "calls", "boundary", "count"}:
         return None
@@ -440,23 +454,31 @@ def answer(case, question, active=None, compare=None, predicted=None):
     relative_night = re.search(r"last night|last evening|yesterday|pichli raat|पिछली रात|कल रात", lower)
     if relative_night and not re.search(r"\b20\d{2}-\d{2}-\d{2}\b", lower):
         return Finding("Date needed", "Enter a date for a night activity question. The night window is 00:00–06:00 IST.")
-    start, end = question_window(case, question, matched)
+    try:
+        start, end = question_window(case, question, matched)
+    except ValueError as error:
+        return Finding("Time window needed", str(error))
     if boundary:
         earliest, latest, direction = boundary
         peer = matched[1] if len(matched) == 2 else None
-        return call_boundaries(case, matched[0], start, end, earliest=earliest, latest=latest, direction=direction, peer=peer)
-    if kind == "count":
+        finding = call_boundaries(case, matched[0], start, end, earliest=earliest, latest=latest, direction=direction, peer=peer)
+    elif kind == "count":
         incoming = re.search(r"\bincoming\b|\breceiv\w*\b|कॉल आईं?", lower)
         outgoing = re.search(r"\boutgoing\b|\bmake\b|\bmade\b|कॉल कीं?", lower)
         direction = "Incoming" if incoming and not outgoing else "Outgoing" if outgoing and not incoming else None
-        return count_calls(case, matched[0], start, end, direction=direction)
-    if kind == "common":
-        return common_contacts(case, *matched, start, end, outgoing_only=joint_call)
-    if kind in {"night", "calls"}:
+        finding = count_calls(case, matched[0], start, end, direction=direction)
+    elif kind == "common":
+        finding = common_contacts(case, *matched, start, end, outgoing_only=joint_call, night_only=night_only)
+    elif kind in {"night", "calls"}:
         if kind == "calls" and start is None:
             return Finding("Time window needed", "Supply an ISO date and two times in IST.")
-        return contacts(case, matched[0], start, end, mode=kind)
-    return TASKS[kind](case, *matched, start, end)
+        finding = contacts(case, matched[0], start, end, mode=kind)
+    else:
+        finding = TASKS[kind](case, *matched, start, end)
+    finding.intent = kind
+    finding.subjects = matched
+    finding.night_only = kind == "night" or (kind == "common" and night_only)
+    return finding
 
 
 def build_xlsx(title, findings):

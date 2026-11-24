@@ -33,11 +33,7 @@ interface AiAssistantViewProps {
     citations: EvidenceCitation[],
     source?: 'ai_assistant' | 'manual_pin'
   ) => void;
-  onApplySuggestedFilter: (filter: {
-    targetView: 'contacts' | 'network' | 'map' | 'ipdr';
-    suspectPhone?: string;
-    nightOnly?: boolean;
-  }) => void;
+  onApplySuggestedFilter: (filter: AiQueryResponse['suggestedFilters'][number]) => void;
   onAuditAppended: (log: unknown) => void;
 }
 
@@ -262,7 +258,7 @@ export const AiAssistantView: React.FC<AiAssistantViewProps> = ({
                             onClick={() =>
                               onPinFinding(
                                 `AI Observation (${caseFile.caseNumber})`,
-                                msg.structured!.answer.slice(0, 320),
+                                msg.structured!.answer,
                                 msg.structured!.evidenceCitations,
                                 'ai_assistant'
                               )

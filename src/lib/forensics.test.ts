@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { buildAssistantResponse, citationKey, type LocalFinding } from './assistant.ts';
 import {
   analyzeContactPatterns,
   buildNetworkGraph,
@@ -27,6 +28,45 @@ test('normalizePhoneNumber normalizes Indian numbers across formats', () => {
   assert.equal(normalizePhoneNumber('+91 98290-77112'), '+919829077112');
   assert.equal(normalizePhoneNumber('919876543210'), '+919876543210');
   assert.equal(normalizePhoneNumber(''), '');
+});
+
+test('assistant cites only exact source rows and keeps the comparison preset', () => {
+  const caseFile = buildDefaultCasePS03();
+  const first = caseFile.cdrs[0];
+  const otherOperator = caseFile.cdrs.find(row => row.sourceFile !== first.sourceFile)!;
+  const reusedId = { ...otherOperator, id: first.id };
+  caseFile.cdrs = [first, reusedId];
+  const hash = caseFile.sources.find(source => source.fileName === first.sourceFile)!.sha256.slice(0, 12);
+  const reference = `${first.sourceFile} Row #${first.rowNumber} · SHA-256 ${hash}`;
+  const finding: LocalFinding = {
+    title: 'Common contacts', summary: 'Recorded calls', rows: [], intent: 'common',
+    subjects: caseFile.suspects.slice(0, 2).map(subject => subject.phone), night_only: true,
+    evidence: [{ 'Source record': reference }, { 'Source record': reference }, { 'Source record': reference + 'wrong' }],
+  };
+  const result = buildAssistantResponse(caseFile, 'Common contacts after midnight', finding);
+  assert.equal(result.evidenceCitations.length, 1);
+  assert.equal(result.evidenceCitations[0].sourceFile, first.sourceFile);
+  assert.notEqual(citationKey(result.evidenceCitations[0]), citationKey({ ...result.evidenceCitations[0], sourceFile: reusedId.sourceFile }));
+  assert.equal(result.suggestedFilters[0].comparePhone, finding.subjects[1]);
+  assert.equal(result.suggestedFilters[0].nightOnly, true);
+  assert.ok(result.followUpQuestions.length);
+
+  const unsupported = buildAssistantResponse(caseFile, 'Unknown question', {
+    ...finding, summary: reference, evidence: [{ Comment: reference }],
+  });
+  assert.equal(unsupported.dataSupported, false);
+  assert.equal(unsupported.evidenceCitations.length, 0);
+  assert.equal(unsupported.suggestedFilters.length, 0);
+});
+
+test('case-level call counts use the observed side and exclude SMS', () => {
+  const { cdrs, suspects } = buildDefaultCasePS03();
+  const incoming = { ...cdrs[0], callType: 'VOICE_IN' as const, observedMsisdn: cdrs[0].callee };
+  const sms = { ...incoming, callType: 'SMS_IN' as const };
+  const result = analyzeContactPatterns([incoming, sms], suspects, 'ALL');
+  assert.equal(result.totalCalls, 1);
+  assert.equal(result.incomingCalls, 1);
+  assert.equal(result.contacts[0].contactNumber, incoming.caller);
 });
 
 test('parseTimestampIST parses ISO-8601 and Airtel split DD/MM/YYYY into IST with night flag', () => {
@@ -104,6 +144,10 @@ test('Case PS03 contact analysis, common contacts, network graph, tower hops, IM
   const timeline = buildTowerTimeline(ps03.cdrs, ps03.towers, '+919829077112');
   assert.ok(timeline.steps.length >= 20);
   assert.ok(timeline.transitions >= 4, 'Rohan should hop across Jaipur towers');
+  const combinedTimeline = buildTowerTimeline(ps03.cdrs, ps03.towers, '+919829077112', undefined, ps03.ipdrs);
+  const ipdrStep = combinedTimeline.steps.find(step => step.citation.recordType === 'ipdr');
+  assert.ok(ipdrStep, 'serving cells logged in IPDR should have their own citations');
+  assert.equal(ipdrStep.sourceFile, 'Carrier_IPDR.csv');
 
   // 5. IMEI & SIM change detection + Shared IMEI detection
   const deviceRes = detectDeviceSimChanges(ps03.cdrs, ps03.suspects);

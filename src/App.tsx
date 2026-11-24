@@ -43,6 +43,7 @@ export default function App() {
   // Deep-link filter state from AI Assistant suggested actions
   const [viewPreset, setViewPreset] = useState<{
     suspectPhone?: string;
+    comparePhone?: string;
     nightOnly?: boolean;
   }>({});
 
@@ -418,8 +419,11 @@ export default function App() {
 
           {activeTab === 'network' && (
             <NetworkCorrelationView
-              key={activeCase.id}
+              key={`${activeCase.id}-${viewPreset.suspectPhone ?? ''}-${viewPreset.comparePhone ?? ''}-${viewPreset.nightOnly ?? false}`}
               caseFile={activeCase}
+              initialSuspectPhones={viewPreset.comparePhone && viewPreset.suspectPhone
+                ? [viewPreset.suspectPhone, viewPreset.comparePhone] : undefined}
+              initialNightOnly={viewPreset.comparePhone ? viewPreset.nightOnly : undefined}
               onInspectCitation={inspectEvidence}
               onOpenLab={() => setActiveTab('lab')}
             />
@@ -457,7 +461,7 @@ export default function App() {
               onInspectCitation={inspectEvidence}
               onPinFinding={handlePinFinding}
               onApplySuggestedFilter={(f) => {
-                setViewPreset({ suspectPhone: f.suspectPhone, nightOnly: f.nightOnly });
+                setViewPreset({ suspectPhone: f.suspectPhone, comparePhone: f.comparePhone, nightOnly: f.nightOnly });
                 setActiveTab(f.targetView);
               }}
               onAuditAppended={(log) =>

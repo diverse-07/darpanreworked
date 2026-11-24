@@ -8,6 +8,7 @@ import {
   findCommonContacts,
   formatDuration,
   formatISTDisplay,
+  isVoiceCall,
 } from './forensics.ts';
 
 /**
@@ -20,6 +21,14 @@ export function sanitizeCell(value: unknown): string | number {
     return `'${s}`;
   }
   return s;
+}
+
+const nightHeaders = ['Timestamp (IST)', 'Operator', 'Caller', 'Callee', 'Duration (sec)', 'Source File', 'Source Row'];
+
+function nightActivityRows(caseFile: CaseFile): Array<Array<string | number>> {
+  return caseFile.cdrs.filter(row => row.isNight && isVoiceCall(row))
+    .sort((a, b) => a.epochMs - b.epochMs)
+    .map(row => [formatISTDisplay(row.timestampIso), row.operator, row.caller, row.callee, row.durationSec, row.sourceFile, row.rowNumber]);
 }
 
 /**
@@ -245,6 +254,13 @@ export function exportCaseExcelWorkbook(
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(custodyRows), 'Custody & Sec 63');
 
+  const nightRows = nightActivityRows(caseFile);
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([
+    ['Night activity (00:00-06:00 IST)', nightRows.length],
+    nightHeaders,
+    ...nightRows.map(row => row.map(sanitizeCell)),
+  ]), 'Night Activity');
+
   const safeName = caseFile.caseNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
   XLSX.writeFile(wb, `Darpan_Draft_Report_${safeName}.xlsx`);
 }
@@ -438,6 +454,29 @@ export function exportCasePdfReport(
     headStyles: { fillColor: [15, 23, 42], textColor: 255 },
     margin: { left: 40, right: 40 },
   });
+
+  const nightRows = nightActivityRows(caseFile);
+  if (nightRows.length) {
+    const sample = nightRows.slice(0, 30);
+    doc.addPage();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(11);
+    doc.setTextColor(15, 23, 42);
+    doc.text('6. Night Activity (00:00-06:00 IST)', 40, 46);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(9);
+    doc.text(nightRows.length > sample.length
+      ? `Showing the first ${sample.length} of ${nightRows.length} calls. The Excel draft includes all rows.`
+      : `${nightRows.length} recorded calls in the night-time window.`, 40, 63);
+    autoTable(doc, {
+      startY: 73,
+      head: [nightHeaders],
+      body: sample,
+      styles: { fontSize: 8, cellPadding: 5 },
+      headStyles: { fillColor: [15, 23, 42], textColor: 255 },
+      margin: { left: 40, right: 40 },
+    });
+  }
 
   const safeName = caseFile.caseNumber.replace(/[^a-zA-Z0-9_-]/g, '_');
   doc.save(`Darpan_Draft_Report_${safeName}.pdf`);

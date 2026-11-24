@@ -10,19 +10,23 @@ import {
 
 interface NetworkCorrelationViewProps {
   caseFile: CaseFile;
+  initialSuspectPhones?: string[];
+  initialNightOnly?: boolean;
   onInspectCitation: (citation: EvidenceCitation) => void;
   onOpenLab: () => void;
 }
 
 export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
   caseFile,
+  initialSuspectPhones,
+  initialNightOnly = false,
   onInspectCitation,
   onOpenLab,
 }) => {
   const [selectedPhones, setSelectedPhones] = useState<string[]>(() =>
-    caseFile.suspects.slice(0, 2).map((s) => s.phone)
+    initialSuspectPhones ?? caseFile.suspects.slice(0, 2).map((s) => s.phone)
   );
-  const [nightOnly, setNightOnly] = useState(false);
+  const [nightOnly, setNightOnly] = useState(initialNightOnly);
   const [zoom, setZoom] = useState(1);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<NetworkEdge | null>(null);

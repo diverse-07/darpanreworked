@@ -4,7 +4,6 @@ import { AlertTriangle, Pause, Play, Smartphone } from 'lucide-react';
 import type { CaseFile, EvidenceCitation } from '../types/forensics.ts';
 import {
   buildTowerTimeline,
-  cdrToCitation,
   detectDeviceSimChanges,
   formatISTDisplay,
 } from '../lib/forensics.ts';
@@ -58,7 +57,7 @@ export const TowerDevicesView: React.FC<TowerDevicesViewProps> = ({
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
 
   const timeline = useMemo(
-    () => buildTowerTimeline(caseFile.cdrs, caseFile.towers, targetPhone, { nightOnly }),
+    () => buildTowerTimeline(caseFile.cdrs, caseFile.towers, targetPhone, { nightOnly }, caseFile.ipdrs),
     [caseFile, targetPhone, nightOnly]
   );
 
@@ -424,10 +423,9 @@ export const TowerDevicesView: React.FC<TowerDevicesViewProps> = ({
                 </tr>
               ) : (
                 timeline.steps.map((st, idx) => {
-                  const cdr = caseFile.cdrs.find((c) => c.id === st.recordId);
                   return (
                     <tr
-                      key={st.recordId}
+                      key={`${st.sourceFile}-${st.rowNumber}`}
                       onClick={() => setPlaybackIdx(idx)}
                       className={`cursor-pointer ${
                         idx === clampedIdx
@@ -467,18 +465,16 @@ export const TowerDevicesView: React.FC<TowerDevicesViewProps> = ({
                       </td>
                       <td className="py-2 px-3 text-slate-600 dark:text-slate-300">{st.operator}</td>
                       <td className="py-2 px-4 text-right">
-                        {cdr && (
                           <button
                             type="button"
                             onClick={(e) => {
                               e.stopPropagation();
-                              onInspectCitation(cdrToCitation(cdr));
+                              onInspectCitation(st.citation);
                             }}
                             className="font-mono text-[11px] text-blue-700 dark:text-blue-400 hover:underline"
                           >
                             [{st.sourceFile}:R{st.rowNumber}]
                           </button>
-                        )}
                       </td>
                     </tr>
                   );

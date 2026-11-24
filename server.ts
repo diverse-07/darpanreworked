@@ -5,8 +5,8 @@ import { spawn, spawnSync } from 'node:child_process';
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import * as XLSX from 'xlsx';
-import type { AiQueryResponse, AuditLogEntry, CaseFile, EvidenceCitation, OfficerSession, VerifiedFinding } from './src/types/forensics.ts';
-import { cdrToCitation, ipdrToCitation } from './src/lib/forensics.ts';
+import type { AuditLogEntry, CaseFile, EvidenceCitation, OfficerSession, VerifiedFinding } from './src/types/forensics.ts';
+import { buildAssistantResponse, caseCitations, citationKey, type LocalFinding } from './src/lib/assistant.ts';
 import { normalizeDatasetRows, parseDelimitedText } from './src/lib/parser.ts';
 import { buildDefaultCasePS03, DOWNLOADABLE_SAMPLES } from './src/lib/sampleData.ts';
 
@@ -21,7 +21,6 @@ const app = express();
 type Workspace = { cases: CaseFile[]; auditLogs: AuditLogEntry[]; originals: Record<string, Record<string, string>> };
 type Envelope = { key: string; revision: number; value: Workspace };
 type Identity = { username: string; role: 'investigator' | 'reviewer' };
-type Finding = { title: string; summary: string; rows: object[]; evidence: object[] };
 
 function unwrap<T>(stdout: string): T {
   const result = JSON.parse(stdout) as { value: T; error?: string };
@@ -35,7 +34,7 @@ function station<T>(command: string, data: unknown): T {
   if (process.status !== 0) throw new Error('Local station service failed. Check the Python environment.');
   return unwrap<T>(process.stdout);
 }
-function answerLocally(payload: unknown): Promise<Finding | null> {
+function answerLocally(payload: unknown): Promise<LocalFinding | null> {
   return new Promise((resolve, reject) => {
     const child = spawn(python, ['-B', bridge, 'answer'], { timeout: 30000, windowsHide: true, stdio: ['pipe', 'pipe', 'ignore'] });
     let output = '';
@@ -44,7 +43,7 @@ function answerLocally(payload: unknown): Promise<Finding | null> {
     child.stdout.setEncoding('utf8').on('data', (chunk: string) => { output += chunk; });
     child.on('close', (code) => {
       if (code !== 0) { reject(new Error('The local assistant did not complete. Verify the Python dependencies.')); return; }
-      try { resolve(unwrap<Finding | null>(output)); } catch (error) { reject(error); }
+      try { resolve(unwrap<LocalFinding | null>(output)); } catch (error) { reject(error); }
     });
     child.stdin.end(JSON.stringify(payload));
   });
@@ -119,10 +118,6 @@ function commit(actor: OfficerSession, caseId: string, action: AuditLogEntry['ac
   workspace = state;
   return auditLog;
 }
-function citations(c: CaseFile) {
-  return [...c.cdrs.map(cdrToCitation), ...c.ipdrs.map(ipdrToCitation)];
-}
-
 app.disable('x-powered-by');
 app.use('/api', (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 app.use(express.json({ limit: '24mb' }));
@@ -213,10 +208,20 @@ app.post('/api/cases/:id/findings', auth, (req, res) => {
   if (typeof title !== 'string' || typeof summary !== 'string' || !title.trim() || !summary.trim()) {
     res.status(400).json({ error: 'A title and summary are required.' }); return;
   }
-  const keys = new Set<string>(Array.isArray(proposed) ? proposed.map((cite: EvidenceCitation) => cite.recordId) : []);
+  const index = new Map(caseCitations(c).map(cite => [citationKey(cite), cite]));
+  const selected = new Map<string, EvidenceCitation>();
+  for (const input of Array.isArray(proposed) ? proposed : []) {
+    if (!input || typeof input !== 'object') continue;
+    const key = citationKey(input);
+    const citation = index.get(key);
+    if (citation) selected.set(key, citation);
+  }
+  if (source === 'ai_assistant' && selected.size === 0) {
+    res.status(400).json({ error: 'Select at least one valid source record before pinning an AI observation.' }); return;
+  }
   const finding: VerifiedFinding = { id: crypto.randomUUID(), caseId: c.id, title: title.slice(0, 200), summary: summary.slice(0, 8000),
     source: source === 'ai_assistant' ? source : 'manual_pin', status: 'pending_review', createdBy: actor.username,
-    createdAt: new Date().toISOString(), citations: citations(c).filter(cite => keys.has(cite.recordId)) };
+    createdAt: new Date().toISOString(), citations: [...selected.values()] };
   const auditLog = commit(actor, c.id, 'FINDING_PIN', finding.title, state => findCase(state, c.id).findings.unshift(finding));
   res.status(201).json({ finding, auditLog });
 });
@@ -249,12 +254,8 @@ app.post('/api/ai/query', auth, async (req, res, next) => {
     if (typeof question !== 'string' || !question.trim() || question.length > 550) { res.status(400).json({ error: 'Enter a question up to 550 characters.' }); return; }
     const c = findCase(workspace, caseId);
     const finding = await answerLocally({ caseFile: c, question: question.trim(), demo, active, compare });
-    const supportText = finding ? [finding.summary, ...finding.evidence.flatMap(row => Object.values(row)), ...finding.rows.flatMap(row => Object.values(row))].join('\n') : '';
-    const matching = citations(c).filter(cite => supportText.includes(cite.sourceFile + ' Row #' + cite.rowNumber + ' · SHA-256'));
-    const result: AiQueryResponse = { answer: matching.length ? finding!.summary : finding ? finding.summary : 'The supplied records do not support that question. Try a contact, a time window, tower visits or device changes.',
-      dataSupported: matching.length > 0, language: /[\u0900-\u097f]/.test(question) ? 'hi' : 'en', evidenceCitations: matching.slice(0, 30),
-      suggestedFilters: [], followUpQuestions: [], modelUsed: 'Local intent model + evidence rules' };
-    const auditLog = commit(viewer(res), c.id, 'AI_QUERY', question.trim() + ' · ' + matching.length + ' source rows');
+    const result = buildAssistantResponse(c, question.trim(), finding);
+    const auditLog = commit(viewer(res), c.id, 'AI_QUERY', question.trim() + ' · ' + result.evidenceCitations.length + ' linked source rows');
     res.json({ result, auditLog });
   } catch (error) { next(error); }
 });

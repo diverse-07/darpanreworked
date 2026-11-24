@@ -263,6 +263,7 @@ export interface TowerTimelineStep {
   lon?: number;
   azimuthDegrees?: number;
   recordId: string;
+  citation: EvidenceCitation;
   sourceFile: string;
   rowNumber: number;
   operator: string;
@@ -321,6 +322,7 @@ export interface AiQueryResponse {
     label: string;
     targetView: 'contacts' | 'network' | 'map' | 'ipdr';
     suspectPhone?: string;
+    comparePhone?: string;
     nightOnly?: boolean;
   }>;
   followUpQuestions: string[];

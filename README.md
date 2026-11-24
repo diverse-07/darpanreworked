@@ -45,6 +45,13 @@ The included Python workstation remains available at `python -m streamlit run ba
 
 The bundled case data is synthetic. The official R4C dataset is required for operator-format acceptance testing.
 
+## PS03 demo walkthrough
+
+1. **Import and validate.** Start in a new synthetic case. Import the Jio CSV, Airtel TSV and carrier IPDR CSV from `backend/sample_data/`. Review the proposed mapping and check normalized counts and validation issues. Import the tower and suspect CSVs to add map coordinates and named subjects.
+2. **Explore the evidence.** In Contact patterns, select a subject to compare call direction, duration, first and last contact, and night activity. In Contact network, select two subjects to compare shared numbers and open a source citation. In Towers and devices, verify the sequence of serving observations and handset or SIM changes. In IPDR lookup, use the supplied IP, port and timestamp to compare sessions and check the supplied service fields.
+3. **Question the case.** In the built-in case, try “Which numbers did both suspects contact after midnight?”, “Which number did Rohan Mehta call last?”, “Summarize the case”, and “रोहन मेहता की रात की कॉल दिखाएं।” Open citations, apply suggested filters, and try an out-of-scope question to see the insufficient-evidence response. Hindi input is supported for documented intents. The analytical text may include English and original operator values.
+4. **Review and export.** Send a cited observation to officer review. Use protected station mode with an investigator and reviewer account to demonstrate separate permissions and audit records. Export a draft PDF and Excel workbook. The Excel Night Activity sheet contains the complete 00:00–06:00 IST call list with source rows.
+
 ## Checks
 
 ```sh

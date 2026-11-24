@@ -23,18 +23,14 @@ export const EvidenceDrawer: React.FC<EvidenceDrawerProps> = ({
   const cdrRecord =
     citation.recordType === 'cdr'
       ? activeCase.cdrs.find(
-          (r) =>
-            r.id === citation.recordId ||
-            (r.sourceFile === citation.sourceFile && r.rowNumber === citation.rowNumber)
+          (r) => r.sourceFile === citation.sourceFile && r.rowNumber === citation.rowNumber
         )
       : undefined;
 
   const ipdrRecord =
     citation.recordType === 'ipdr'
       ? activeCase.ipdrs.find(
-          (r) =>
-            r.id === citation.recordId ||
-            (r.sourceFile === citation.sourceFile && r.rowNumber === citation.rowNumber)
+          (r) => r.sourceFile === citation.sourceFile && r.rowNumber === citation.rowNumber
         )
       : undefined;
 

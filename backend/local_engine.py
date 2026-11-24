@@ -85,6 +85,8 @@ def local_answer(data):
 
 if __name__ == "__main__":
     try:
+        # Node writes UTF-8 to this pipe, including on Windows stations.
+        sys.stdin.reconfigure(encoding="utf-8")
         operation = sys.argv[1]
         data = json.load(sys.stdin)
         result = local_answer(data) if operation == "answer" else station_request(operation, data)

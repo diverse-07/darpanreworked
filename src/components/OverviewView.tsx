@@ -60,7 +60,7 @@ function EvidenceDock({ caseFile, onInspectCitation }: Pick<OverviewViewProps, '
           <table>
             <thead><tr><th scope="col">Timestamp (IST)</th><th scope="col">Type</th><th scope="col">Observation</th><th scope="col">Source</th></tr></thead>
             <tbody>{matches.slice(start, start + pageSize).map(record => (
-              <tr key={record.recordId}>
+              <tr key={`${record.recordType}-${record.sourceFile}-${record.rowNumber}`}>
                 <td>{record.timestamp ? formatISTDisplay(record.timestamp) : '—'}</td>
                 <td className="explorer-record-kind">{record.recordType}</td>
                 <td>{record.summary}</td>
