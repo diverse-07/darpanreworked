@@ -1,42 +1,43 @@
 @import "tailwindcss";
 @custom-variant dark (&:where(.dark, .dark *));
 @import "leaflet/dist/leaflet.css";
+@import "./station-ui.css";
 
 @theme {
   --font-display: "Segoe UI", system-ui, sans-serif;
   --font-sans: "Segoe UI", system-ui, sans-serif;
   --font-mono: "Cascadia Mono", Consolas, ui-monospace, monospace;
-  --color-slate-50: #f8f8f7;
-  --color-slate-100: #eeeeed;
-  --color-slate-200: #dededb;
-  --color-slate-300: #ccccca;
-  --color-slate-400: #adadaa;
-  --color-slate-500: #8c8c89;
-  --color-slate-600: #646461;
-  --color-slate-700: #4c4c49;
-  --color-slate-800: #313130;
-  --color-slate-900: #1b1b1b;
-  --color-slate-950: #141414;
-  --color-blue-50: #f2eee6;
-  --color-blue-100: #e9e0cf;
-  --color-blue-200: #f2dbb8;
-  --color-blue-300: #e5c79c;
-  --color-blue-400: #ddba87;
-  --color-blue-500: #ae8451;
-  --color-blue-600: #76582f;
-  --color-blue-700: #624421;
-  --color-blue-800: #4c351a;
-  --color-blue-900: #463b2e;
-  --color-blue-950: #342b21;
+  --color-slate-50: #f5f8fa;
+  --color-slate-100: #eaf0f4;
+  --color-slate-200: #d5dfe5;
+  --color-slate-300: #bccbd6;
+  --color-slate-400: #a5b7c4;
+  --color-slate-500: #6c8393;
+  --color-slate-600: #526977;
+  --color-slate-700: #3d505e;
+  --color-slate-800: #2c3c49;
+  --color-slate-900: #17212b;
+  --color-slate-950: #111820;
+  --color-blue-50: #e4f4f6;
+  --color-blue-100: #d3edf2;
+  --color-blue-200: #b8e5ed;
+  --color-blue-300: #9de3f3;
+  --color-blue-400: #8bd4e4;
+  --color-blue-500: #41889b;
+  --color-blue-600: #2e7186;
+  --color-blue-700: #24586a;
+  --color-blue-800: #1a4352;
+  --color-blue-900: #203b49;
+  --color-blue-950: #172f3b;
   --radius-xl: .625rem;
   --radius-2xl: .75rem;
 }
 
 @layer base {
   html { font-family: var(--font-sans); --chart-grid:#dededb; --chart-label:#666; }
-  html.dark { color-scheme:dark; --chart-grid:#3b3b39; --chart-label:#adadaa; }
+  html.dark { color-scheme:dark; --chart-grid:#354957; --chart-label:#a5b7c4; }
   h1,h2,h3,h4 { font-family:var(--font-display); font-weight:600; }
-  :focus-visible { outline:2px solid #b8874d; outline-offset:3px; }
+  :focus-visible { outline:2px solid #50abc4; outline-offset:3px; }
   :disabled { cursor:not-allowed; }
   td,th { padding:8px 12px; border-bottom:1px solid var(--color-slate-200); }
   .dark td,.dark th { border-color:var(--color-slate-800); }
@@ -45,11 +46,10 @@
 
 .case-brief { background:#fff; border:1px solid #dededb; border-left:3px solid #9a713d; border-radius:8px; }
 .dark .case-brief { background:#1b1b1b; border-color:#34332f; border-left-color:#c99959; }
-.case-metrics { background:#fff; border:1px solid #dededb; border-radius:8px; overflow:hidden; }
-.case-metrics > div { border-right:1px solid #dededb; padding:20px; }
+.case-metrics { display:grid; grid-template-columns:1fr; background:var(--station-panel); border:1px solid var(--station-line); border-radius:8px; overflow:hidden; }
+.case-metrics > div { border-bottom:1px solid var(--station-line); padding:16px 20px; }
+.case-metrics > div:last-child { border-bottom:0; }
 .case-metrics > div:last-child { border-right:0; }
-.dark .case-metrics { background:#1b1b1b; border-color:#313130; }
-.dark .case-metrics > div { border-color:#313130; }
 .workspace-view { animation:workspace-enter .18s cubic-bezier(.2,.7,.2,1) both; }
 @keyframes workspace-enter { from { opacity:.65; transform:translateY(4px) } to { opacity:1; transform:none } }
 .station-entry { min-height:100svh; display:grid; place-items:center; padding:24px; background:#141414; color:#ededed; }
@@ -64,11 +64,64 @@
 .leaflet-container { background-image:repeating-linear-gradient(0deg,transparent 0 31px,#8883 31px 32px), repeating-linear-gradient(90deg,transparent 0 31px,#8883 31px 32px); }
 .dark .leaflet-popup-content-wrapper,.dark .leaflet-popup-tip { background:#242424; color:#eee; border:1px solid #505050; }
 
-@media (max-width:1279px) {
-  .case-metrics > div:nth-child(-n + 2) { border-bottom:1px solid var(--color-slate-300); }
-  .dark .case-metrics > div:nth-child(-n + 2) { border-bottom-color:var(--color-slate-800); }
+.network-canvas {
+  background-color:#f6f5f2;
+  background-image:radial-gradient(circle,#76695426 1px,transparent 1px);
+  background-size:24px 24px;
+}
+.dark .network-canvas {
+  background-color:#151515;
+  background-image:radial-gradient(circle,#d9c49129 1px,transparent 1px);
+}
+.network-zoom {
+  transform-box:view-box;
+  transform-origin:center;
+  transition:transform .28s cubic-bezier(.2,.7,.2,1);
+}
+.network-edge,.network-node-core { transition:stroke .18s,stroke-opacity .18s,fill .18s; }
+.network-target:is(:hover,:focus-visible) .network-node-core { stroke:#f2c783; }
+.network-target:is(:hover,:focus-visible) .network-edge { stroke:#d59f54; stroke-opacity:1; }
+.network-selection,.network-ripple { fill:none; stroke:#dba657; stroke-width:1.8; pointer-events:none; }
+.network-ripple {
+  transform-box:fill-box;
+  transform-origin:center;
+  animation:network-ripple .88s ease-out both;
+}
+.network-traces {
+  fill:none;
+  stroke:#a86922;
+  stroke-width:3.5;
+  stroke-linecap:round;
+  stroke-dasharray:.14 1.16;
+  pointer-events:none;
+  animation:network-trace 1.28s cubic-bezier(.25,.55,.35,1) 2 both;
+}
+.dark .network-traces { stroke:#ffd697; }
+@keyframes network-trace {
+  0% { stroke-dashoffset:.16; opacity:0; }
+  18% { opacity:.95; }
+  74% { opacity:.85; }
+  100% { stroke-dashoffset:-1.02; opacity:0; }
+}
+@keyframes network-ripple {
+  from { opacity:.85; transform:scale(1); }
+  to { opacity:0; transform:scale(1.68); }
+}
+
+@media (min-width:520px) {
+  .case-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .case-metrics > div:nth-child(odd) { border-right:1px solid var(--station-line); }
+  .case-metrics > div:nth-last-child(-n + 2) { border-bottom:0; }
+}
+@media (min-width:1000px) {
+  .case-metrics { grid-template-columns:repeat(4,minmax(0,1fr)); }
+  .case-metrics > div:nth-child(n) { border-right:1px solid var(--station-line); border-bottom:0; }
+  .case-metrics > div:last-child { border-right:0; }
 }
 @media (prefers-reduced-motion:reduce) {
   *,*::before,*::after { animation-duration:.01ms !important; transition-duration:.01ms !important; }
   .workspace-view { animation:none; }
+  .network-traces,.network-ripple { display:none; }
+  .network-canvas[data-replay=true] .network-traces { display:inline; animation-duration:1.28s !important; }
+  .network-canvas[data-replay=true] .network-ripple { display:inline; animation-duration:.88s !important; }
 }

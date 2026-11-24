@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { AlertTriangle, Play, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import type { CaseFile, EvidenceCitation, NetworkEdge, NetworkNode } from '../types/forensics.ts';
 import {
   buildNetworkGraph,
@@ -11,11 +11,13 @@ import {
 interface NetworkCorrelationViewProps {
   caseFile: CaseFile;
   onInspectCitation: (citation: EvidenceCitation) => void;
+  onOpenLab: () => void;
 }
 
 export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
   caseFile,
   onInspectCitation,
+  onOpenLab,
 }) => {
   const [selectedPhones, setSelectedPhones] = useState<string[]>(() =>
     caseFile.suspects.slice(0, 2).map((s) => s.phone)
@@ -24,6 +26,19 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
   const [zoom, setZoom] = useState(1);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<NetworkEdge | null>(null);
+  const [motionRun, setMotionRun] = useState(0);
+  const [replayRequested, setReplayRequested] = useState(false);
+  const selectGraphItem = (nodeId: string | null, edge: NetworkEdge | null) => {
+    setSelectedNodeId(nodeId);
+    setSelectedEdge(edge);
+    setReplayRequested(false);
+    setMotionRun(run => run + 1);
+  };
+  const changeNightFilter = (night: boolean) => {
+    if (night === nightOnly) return;
+    setNightOnly(night);
+    selectGraphItem(null, null);
+  };
 
   const graph = useMemo(
     () => buildNetworkGraph(caseFile.cdrs, caseFile.suspects, { nightOnly }),
@@ -131,7 +146,7 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
         <div className="flex items-center gap-1 p-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
           <button
             type="button"
-            onClick={() => setNightOnly(false)}
+            onClick={() => changeNightFilter(false)}
             className={`px-3 py-1.5 text-xs font-medium rounded-md ${
               !nightOnly
                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
@@ -142,7 +157,7 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => setNightOnly(true)}
+            onClick={() => changeNightFilter(true)}
             className={`px-3 py-1.5 text-xs font-medium rounded-md ${
               nightOnly
                 ? 'bg-white dark:bg-slate-900 text-amber-800 dark:text-amber-300 shadow-sm'
@@ -163,10 +178,26 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                 Communication links
               </h2>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Brighter amber marks selected subjects. Select a person or link to inspect its records.
+                Select a person or link to trace connections and inspect the source records.
               </p>
             </div>
             <div className="flex items-center gap-1">
+              <button type="button" onClick={onOpenLab}
+                className="rounded-md border border-slate-200 px-2 py-1.5 text-xs hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">
+                Open evidence lab
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReplayRequested(true);
+                  setMotionRun(run => run + 1);
+                }}
+                disabled={!graph.edges.length}
+                className="inline-flex items-center gap-2 rounded-md border border-slate-200 px-2 py-1.5 text-xs hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800"
+              >
+                <Play className="h-3.5 w-3.5" aria-hidden="true" />
+                Replay motion
+              </button>
               <button
                 type="button"
                 onClick={() => setZoom((z) => Math.min(1.8, Number((z + 0.15).toFixed(2))))}
@@ -187,8 +218,7 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                 type="button"
                 onClick={() => {
                   setZoom(1);
-                  setSelectedNodeId(null);
-                  setSelectedEdge(null);
+                  selectGraphItem(null, null);
                 }}
                 aria-label="Reset graph view"
                 className="p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
@@ -199,7 +229,8 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
           </div>
 
           <div
-            className="relative flex-1 min-h-[450px] bg-slate-50/60 dark:bg-slate-950/60 overflow-hidden"
+            className="network-canvas relative flex-1 min-h-[450px] overflow-hidden"
+            data-replay={replayRequested ? 'true' : undefined}
             data-testid="contact-network-graph"
           >
             {graph.nodes.length === 0 ? (
@@ -213,7 +244,7 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                 role="group"
                 aria-label="Suspect and contact communication network graph"
               >
-                <g transform={`translate(410, 230) scale(${zoom}) translate(-410, -230)`}>
+                <g className="network-zoom" style={{ transform: `scale(${zoom})` }}>
                   {/* Edges */}
                   {graph.edges.map((edge, idx) => {
                     const p1 = nodePositions.get(edge.source);
@@ -223,6 +254,7 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                       selectedEdge === edge ||
                       selectedNodeId === edge.source ||
                       selectedNodeId === edge.target;
+                    const showTrace = selectedEdge || selectedNodeId ? isHighlighted : idx < 12;
                     const strokeWidth = Math.min(4.5, 1.3 + Math.log2(edge.callCount + 1));
                     // Stagger label position along edge so intersecting chords never stack badges
                     const t = idx % 2 === 0 ? 0.42 : 0.58;
@@ -235,18 +267,16 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                         role="button"
                         tabIndex={0}
                         aria-label={edge.callCount + ' calls between ' + edge.source + ' and ' + edge.target}
-                        onClick={() => {
-                          setSelectedEdge(edge);
-                          setSelectedNodeId(null);
-                        }}
+                        aria-pressed={selectedEdge === edge}
+                        onClick={() => selectGraphItem(null, edge)}
                         onKeyDown={event => {
                           if (event.key !== 'Enter' && event.key !== ' ') return;
                           event.preventDefault();
-                          setSelectedEdge(edge);
-                          setSelectedNodeId(null);
+                          selectGraphItem(null, edge);
                         }}
                       >
                         <line
+                          className="network-edge"
                           x1={p1.x}
                           y1={p1.y}
                           x2={p2.x}
@@ -258,9 +288,16 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                                 ? '#996b42'
                                 : '#73736f'
                           }
-                          strokeOpacity={selectedNodeId && !isHighlighted ? 0.18 : 0.65}
+                          strokeOpacity={isHighlighted ? 1 : selectedEdge || selectedNodeId ? 0.23 : 0.65}
                           strokeWidth={strokeWidth}
                         />
+                        {showTrace && (
+                          <g key={motionRun} aria-hidden="true" className="network-traces"
+                            style={{ animationDelay: `${(idx % 8) * 85}ms` }}>
+                            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} pathLength={1} />
+                            <line x1={p2.x} y1={p2.y} x2={p1.x} y2={p1.y} pathLength={1} />
+                          </g>
+                        )}
                         <rect
                           x={labelX - 12}
                           y={labelY - 8.5}
@@ -315,27 +352,17 @@ export const NetworkCorrelationView: React.FC<NetworkCorrelationViewProps> = ({
                         tabIndex={0}
                         aria-label={'Inspect ' + node.label}
                         aria-pressed={isSelected}
-                        onClick={() => {
-                          setSelectedNodeId(node.id);
-                          setSelectedEdge(null);
-                        }}
+                        onClick={() => selectGraphItem(node.id, null)}
                         onKeyDown={event => {
                           if (event.key !== 'Enter' && event.key !== ' ') return;
                           event.preventDefault();
-                          setSelectedNodeId(node.id);
-                          setSelectedEdge(null);
+                          selectGraphItem(node.id, null);
                         }}
                       >
-                        {isSelected && (
-                          <circle
-                            r={radius + 6}
-                            fill="none"
-                            stroke="#1d4ed8"
-                            strokeWidth={2}
-                            strokeDasharray="3 2"
-                          />
-                        )}
+                        {isSelected && <circle className="network-selection" r={radius + 6} />}
+                        {isSelected && <circle key={motionRun} className="network-ripple" r={radius + 6} aria-hidden="true" />}
                         <circle
+                          className="network-node-core"
                           r={radius}
                           fill={fill}
                           stroke="#ffffff"

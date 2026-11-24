@@ -19,6 +19,7 @@ import { AiAssistantView } from './components/AiAssistantView.tsx';
 import { ReportsView } from './components/ReportsView.tsx';
 import { AccessAuditView } from './components/AccessAuditView.tsx';
 import { EvidenceDrawer } from './components/EvidenceDrawer.tsx';
+import { EvidenceLab } from './components/EvidenceLab.tsx';
 import { NewCaseModal } from './components/NewCaseModal.tsx';
 
 export default function App() {
@@ -357,7 +358,7 @@ export default function App() {
   );
 
   return (
-    <div className="workstation min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
+    <div data-view={activeTab} className="workstation min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100">
       <Sidebar
         activeTab={activeTab}
         onSelectTab={setActiveTab}
@@ -379,13 +380,15 @@ export default function App() {
           activeTab={activeTab}
           activeCase={activeCase}
           officer={officer}
+          demo={demo}
           darkMode={darkMode}
+          mobileNavOpen={mobileNavOpen}
           onToggleDarkMode={() => setDarkMode((d) => !d)}
           onOpenMobileNav={() => setMobileNavOpen(true)}
           onNavigateImport={() => setActiveTab('import')}
         />
 
-        <main key={activeTab} className="workspace-view flex-1 p-4 lg:p-8 max-w-[1520px] w-full mx-auto">
+        <main key={activeTab} className="workspace-view station-main flex-1 max-w-[1520px] w-full mx-auto">
           {activeTab === 'overview' && (
             <OverviewView
               caseFile={activeCase}
@@ -418,7 +421,12 @@ export default function App() {
               key={activeCase.id}
               caseFile={activeCase}
               onInspectCitation={inspectEvidence}
+              onOpenLab={() => setActiveTab('lab')}
             />
+          )}
+
+          {activeTab === 'lab' && (
+            <EvidenceLab key={activeCase.id} caseFile={activeCase} onInspectCitation={inspectEvidence} />
           )}
 
           {activeTab === 'map' && (

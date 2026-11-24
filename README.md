@@ -1,10 +1,10 @@
 # Darpan Reworked
 
-An offline PS03 telecom evidence workstation. This edition combines the React investigation interface from darpan2 with Darpan’s Python/DuckDB evidence engine, local PyTorch intent model, and Fernet-encrypted SQLite station storage. The UI uses a graphite palette with amber emphasis on case selection and audit evidence.
+An offline CDR/IPDR investigation workstation for PS03. The React case workspace connects to Darpan's Python/DuckDB evidence engine, local PyTorch intent model, and Fernet-encrypted SQLite station storage.
 
 ## Run the synthetic case
 
-Prerequisites are Node.js 24, Bun, and a Python environment with the dependencies below.
+Prerequisites are Node.js 24, Bun, and Python with the dependencies below. Run these commands from the repository root.
 
 ```sh
 bun install --frozen-lockfile
@@ -12,7 +12,9 @@ python -m pip install -r backend/requirements.txt
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. The synthetic case runs in memory. Uploaded data in demo mode is cleared on restart. Use only synthetic fixtures for hackathon rehearsal. The assistant runs locally and no cloud API key is needed.
+Open http://127.0.0.1:3000. The synthetic case runs in memory. Uploaded data in demo mode is cleared on restart. Use only synthetic fixtures for hackathon rehearsal. The assistant runs locally without a cloud API key. Set `DARPAN_PYTHON` to the Python executable if the server needs to use a particular virtual environment.
+
+Try choosing a case subject in Graph explorer, opening a linked source row, and filtering the evidence timeline. In Evidence assistant, ask “Show common contacts for Rohan Mehta and Aman Verma.” The answer cites the original files and rows. The animated portrait is synthetic.
 
 For a production asset build, run `npm run build`. Run `npm run start -- --demo` to serve the built synthetic workspace.
 
@@ -32,6 +34,14 @@ Omitting `--demo` requires station accounts. Investigators create cases and impo
 Imports preserve original bytes and compute SHA-256 on the server. Case records, source originals, findings and audit records are encrypted in the station vault. The tower view uses local coordinates and a local grid. Serving-tower observations are approximate. The browser exports drafts with source references for officer review.
 
 The included Python workstation remains available at `python -m streamlit run backend/app.py --server.address 127.0.0.1 --browser.gatherUsageStats false`. Its case payload format differs from the React workspace. Its bank ledger and evidence-package workflows remain available there. For training the local model checkpoint, run `python backend/app.py --train-models`.
+
+## Source layout
+
+- `src/` contains the React interface, SVG evidence graph, and synthetic portrait asset.
+- `server.ts` serves the app and bridges authenticated case work to Python.
+- `backend/local_engine.py` exposes local analysis and encrypted case storage to the server.
+- `backend/darpan_models.py` contains the PyTorch model definitions and training logic. `backend/darpan-models.json` contains the bundled checkpoint.
+- `backend/sample_data/` contains synthetic import fixtures, including separate Jio and Airtel CDR formats and a carrier IPDR sample.
 
 The bundled case data is synthetic. The official R4C dataset is required for operator-format acceptance testing.
 

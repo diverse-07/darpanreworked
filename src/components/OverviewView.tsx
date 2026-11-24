@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Bar,
   BarChart,
@@ -9,16 +9,20 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { ArrowRight, AlertTriangle, CheckCircle2, FileText } from 'lucide-react';
+import { ArrowRight, AlertTriangle, Bot, CheckCircle2, FileText, Aperture, Pause, Play, List, ChevronDown } from 'lucide-react';
 import type { CaseFile, EvidenceCitation } from '../types/forensics.ts';
 import {
   analyzeContactPatterns,
+  cdrToCitation,
   detectDeviceSimChanges,
   findCommonContacts,
   formatDuration,
   formatISTDisplay,
+  ipdrToCitation,
 } from '../lib/forensics.ts';
 import type { NavTab } from './Sidebar.tsx';
+import { EvidenceLinks } from './EvidenceLab.tsx';
+import { FaceScan } from './FaceScan.tsx';
 
 interface OverviewViewProps {
   caseFile: CaseFile;
@@ -26,11 +30,62 @@ interface OverviewViewProps {
   onInspectCitation: (citation: EvidenceCitation) => void;
 }
 
+function EvidenceDock({ caseFile, onInspectCitation }: Pick<OverviewViewProps, 'caseFile' | 'onInspectCitation'>) {
+  const [kind, setKind] = useState('all');
+  const [day, setDay] = useState('');
+  const [page, setPage] = useState(0);
+  const records = useMemo(() => [
+    ...caseFile.cdrs.map(cdrToCitation),
+    ...caseFile.ipdrs.map(ipdrToCitation),
+  ].sort((a, b) => Date.parse(b.timestamp ?? '') - Date.parse(a.timestamp ?? '')), [caseFile]);
+  const matches = records.filter(record =>
+    (kind === 'all' || record.recordType === kind) && (!day || record.timestamp?.slice(0, 10) === day)
+  );
+  const pageSize = 5;
+  const current = Math.min(page, Math.max(0, Math.ceil(matches.length / pageSize) - 1));
+  const start = current * pageSize;
+
+  return (
+    <details className="explorer-dock" open>
+      <summary><List size={15} aria-hidden="true"/> <span>Evidence timeline</span><small>{matches.length} records</small><ChevronDown size={15} aria-hidden="true"/></summary>
+      <div className="explorer-dock-controls">
+        <label>Type <select value={kind} onChange={event => { setKind(event.target.value); setPage(0); }}>
+          <option value="all">All records</option><option value="cdr">CDR</option><option value="ipdr">IPDR</option>
+        </select></label>
+        <label>Date (IST) <input type="date" value={day} onInput={event => { setDay(event.currentTarget.value); setPage(0); }}/></label>
+        {day && <button type="button" onClick={() => { setDay(''); setPage(0); }}>Clear date</button>}
+      </div>
+      {matches.length ? <>
+        <div className="explorer-table-scroll">
+          <table>
+            <thead><tr><th scope="col">Timestamp (IST)</th><th scope="col">Type</th><th scope="col">Observation</th><th scope="col">Source</th></tr></thead>
+            <tbody>{matches.slice(start, start + pageSize).map(record => (
+              <tr key={record.recordId}>
+                <td>{record.timestamp ? formatISTDisplay(record.timestamp) : '—'}</td>
+                <td className="explorer-record-kind">{record.recordType}</td>
+                <td>{record.summary}</td>
+                <td><button type="button" onClick={() => onInspectCitation(record)}>{record.sourceFile} · Row {record.rowNumber}</button></td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+        {matches.length > pageSize && <div className="explorer-pagination">
+          <span>{start + 1}–{Math.min(start + pageSize, matches.length)} of {matches.length}</span>
+          <button type="button" disabled={current === 0} onClick={() => setPage(current - 1)}>Previous</button>
+          <button type="button" disabled={start + pageSize >= matches.length} onClick={() => setPage(current + 1)}>Next</button>
+        </div>}
+      </> : <p className="explorer-dock-empty">{records.length ? 'No records match these filters.' : 'Import CDR or IPDR files to populate the timeline.'}</p>}
+    </details>
+  );
+}
+
 export const OverviewView: React.FC<OverviewViewProps> = ({
   caseFile,
   onNavigate,
   onInspectCitation,
 }) => {
+  const [playing, setPlaying] = useState(() => !window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  const scanAngle = useRef(0);
   const analysis = useMemo(
     () => analyzeContactPatterns(caseFile.cdrs, caseFile.suspects, 'ALL'),
     [caseFile]
@@ -58,51 +113,56 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
   const pendingFindings = caseFile.findings.filter((f) => f.status === 'pending_review').length;
 
   return (
-    <div className="space-y-6">
-      {/* Case Brief Header */}
-      <section className="case-brief p-5 lg:p-6">
-        <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
-          <div className="space-y-2 max-w-3xl">
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 dark:text-slate-400">
-              <span className="font-mono font-medium text-slate-700 dark:text-slate-300">
-                {caseFile.caseNumber}
-              </span>
-              <span aria-hidden="true">·</span>
-              <span>{caseFile.station}</span>
-              <span aria-hidden="true">·</span>
-              <span>Opened by {caseFile.createdBy}</span>
-            </div>
-            <h2 className="text-2xl lg:text-4xl font-semibold text-slate-900 dark:text-white tracking-tight">
-              {caseFile.title}
-            </h2>
-            <p className="text-sm text-slate-600 dark:text-slate-300 leading-relaxed">
-              {caseFile.brief}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
-            <button
-              type="button"
-              onClick={() => onNavigate('ai')}
-              className="px-4 py-2 rounded-lg text-xs font-semibold bg-blue-700 hover:bg-blue-800 text-white transition-colors whitespace-nowrap"
-            >
-              Ask the assistant
-            </button>
-            <button
-              type="button"
-              onClick={() => onNavigate('reports')}
-              className="px-4 py-2 rounded-lg text-xs font-semibold border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
-            >
-              Draft report
-            </button>
-          </div>
+    <div className="case-explorer">
+      <section className="case-summary" data-running={playing}>
+        <div className="case-intro">
+          <p className="case-reference">{caseFile.caseNumber} <span aria-hidden="true">/</span> {caseFile.status}</p>
+          <h2>{caseFile.title}</h2>
+          <details className="case-brief">
+            <summary>Case brief</summary>
+            <p className="case-description">{caseFile.brief || 'Import call or IP records to begin examining the case.'}</p>
+            <p className="case-station">{caseFile.station}{caseFile.createdBy && ' · Opened by ' + caseFile.createdBy}</p>
+          </details>
+        </div>
+        <div className="case-actions">
+          <button type="button" onClick={() => onNavigate('ai')} className="station-action">
+            <Bot size={16} aria-hidden="true"/> Ask the assistant
+          </button>
+          <button type="button" onClick={() => onNavigate('reports')} className="station-action station-secondary">
+            <FileText size={16} aria-hidden="true"/> Draft report
+          </button>
+        </div>
+        <div className="case-evidence-links">
+          <EvidenceLinks key={caseFile.id} caseFile={caseFile} onInspectCitation={onInspectCitation} playing={playing}
+            workspace={{
+              motionControl: <button className="lab-control" type="button" onClick={() => setPlaying(current => !current)}>
+                {playing ? <Pause size={14} aria-hidden="true"/> : <Play size={14} aria-hidden="true"/>}
+                {playing ? 'Pause motion' : 'Play motion'}
+              </button>,
+              portrait: <section className="case-portrait" aria-labelledby="overview-face-title">
+                <div className="lab-panel-head">
+                  <Aperture size={15} aria-hidden="true"/>
+                  <h4 id="overview-face-title">Face scan</h4>
+                  <span>Synthetic portrait</span>
+                </div>
+                <div className="lab-face-stage">
+                  <div className="lab-reticle" aria-hidden="true"/>
+                  <FaceScan playing={playing} angle={0} scanAngle={scanAngle}/>
+                </div>
+                <button className="case-lab-link" type="button" onClick={() => onNavigate('lab')}>
+                  Open Evidence Lab <ArrowRight size={14} aria-hidden="true"/>
+                </button>
+              </section>,
+            }}/>
         </div>
       </section>
+      <EvidenceDock key={caseFile.id} caseFile={caseFile} onInspectCitation={onInspectCitation}/>
 
       {/* 4-Column KPI Strip */}
-      <section aria-label="Case key metrics" className="case-metrics grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+      <section aria-label="Case key metrics" className="case-metrics">
         <div className="p-5">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Normalized Telecom Records
+            Telecom records
           </p>
           <p className="mt-2 font-mono tabular-nums text-3xl font-semibold text-slate-900 dark:text-white">
             {caseFile.cdrs.length + caseFile.ipdrs.length}
@@ -114,7 +174,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="p-5">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Night-Time Activity (00:00–06:00 IST)
+            Night calls (00:00–06:00 IST)
           </p>
           <p className="mt-2 font-mono tabular-nums text-3xl font-semibold text-slate-900 dark:text-white">
             {analysis.nightCalls}{' '}
@@ -129,7 +189,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="p-5">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Device &amp; Cross-Suspect Alerts
+            Device alerts
           </p>
           <p className="mt-2 font-mono tabular-nums text-3xl font-semibold text-slate-900 dark:text-white">
             {deviceAnalysis.changes.length + deviceAnalysis.sharedDevices.length}
@@ -141,7 +201,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
 
         <div className="p-5">
           <p className="text-xs font-medium text-slate-500 dark:text-slate-400">
-            Officer Verification Queue
+            Officer review
           </p>
           <p className="mt-2 font-mono tabular-nums text-3xl font-semibold text-slate-900 dark:text-white">
             {verifiedFindings}{' '}
@@ -156,9 +216,9 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
       </section>
 
       {/* Main Analytical Row: Hourly Activity Chart + Forensic Signals */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      <div className="overview-analysis grid grid-cols-1 [@media(min-width:1100px)]:grid-cols-3 gap-5">
         {/* 24-Hour IST Distribution */}
-        <section className="xl:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col">
+        <section className="[@media(min-width:1100px)]:col-span-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-5 flex flex-col">
           <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <div>
               <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
@@ -242,7 +302,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
           {operators.length > 0 && (
             <div className="mt-4 pt-3.5 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-slate-600 dark:text-slate-300">
               <span className="font-medium text-slate-500 dark:text-slate-400">
-                Operator Mix:
+                Records by operator
               </span>
               {operators.map(([op, count]) => (
                 <span key={op} className="inline-flex items-center gap-1.5">
@@ -358,7 +418,7 @@ export const OverviewView: React.FC<OverviewViewProps> = ({
         <section className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
           <div className="px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <h3 className="font-display text-sm font-semibold text-slate-900 dark:text-white">
-              Registered Suspect Profiles ({caseFile.suspects.length})
+              Subject profiles ({caseFile.suspects.length})
             </h3>
             <button
               type="button"
